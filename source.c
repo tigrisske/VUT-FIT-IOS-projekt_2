@@ -14,10 +14,13 @@ bool inRange(int min, int max, int arg){
 
 
 int main(int argc, char **argv){
-    //checking the argumets
+    int cislo = 34;
+    if (isdigit(cislo)){
+        return 0;
+    }
     if (argc != ARG_NUM){
         printf("1");
-        exit(1);
+        return 1;
     }
 
     int TI = atoi(argv[3]); 
@@ -25,8 +28,7 @@ int main(int argc, char **argv){
     //if given parameters are not in range <0,1000> program exits
     if (!(inRange(0,1000,TI) && inRange(0,1000,TB))){
         printf("1");
-        exit(1);
+        return 1;
     }
-    printf("0");
-    exit(0);
+    return 0;
 }
