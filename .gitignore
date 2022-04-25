@@ -1,6 +1,7 @@
 # Prerequisites
 *.d
 
+marek.c #hihi
 # Object files
 *.o
 *.ko
