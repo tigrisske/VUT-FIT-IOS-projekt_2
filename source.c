@@ -16,30 +16,65 @@
 
 const char *started = "started";
 const char *queue = "going to queue";
-const char *mol_cr = "creating molecule";
-
+const char *mol_creating = "creating molecule";
+const char *mol_created = "molecule created";
 
 typedef struct shared{
     int hyd_num ;
     int ox_num;
     int mol_num;
+    int atoms_in;
+    char H1;
+    char H2;
     size_t rows_cnt;
 
     //semaphores
     sem_t hyd;
     sem_t ox;
     sem_t mutex;
+    sem_t mutex2;
+    sem_t mutex3;
     sem_t out;
     FILE* file_op;
 
 }shared_t;
 
 //print function
-void print_to_file(shared_t *shared, int id, char atom,const char* message){
+void print_to_file(shared_t *shared, int id, char atom, int todo){
+    //only one process can write to file at the time
     sem_wait(&shared->out);
-    //printf("%d\n",++shared->rows_cnt);
-    fprintf(shared->file_op ,"%ld: %c %d: %s\n", ++shared->rows_cnt, atom,id,message);
-    fflush(shared->file_op);
+
+    //started
+    if (todo == 0) {
+        fprintf(shared->file_op, "%ld: %c %d: started\n", ++shared->rows_cnt, atom, id);
+        fflush(shared->file_op);
+
+    }
+    //going to queue
+    else if (todo == 1){
+        fprintf(shared->file_op, "%ld: %c %d: going to queue\n", ++shared->rows_cnt, atom, id);
+
+        if (atom == 'O'){shared->ox_num++;}
+        if (atom == 'H'){shared->hyd_num++;}
+        fflush(shared->file_op);
+    }
+    //creating molecule
+    else if (todo == 2){
+
+        fprintf(shared->file_op, "%ld: %c %d: creating molecule \n", ++shared->rows_cnt, atom, id);
+        shared->atoms_in++;
+        fflush(shared->file_op);
+        if (atom == 'O'){shared->ox_num--;}
+        if (atom == 'H'){shared->hyd_num--;}
+
+    }
+    //molecule created
+    else if (todo == 3){
+        fprintf(shared->file_op, "%ld: %c:%d molecule created\n", ++shared->rows_cnt, atom, id );
+        fflush(shared->file_op);
+        //shared->atoms_in--;
+    }
+    //allowing other processes to access output file
     sem_post(&shared->out);
 }
 
@@ -60,26 +95,27 @@ bool inRange(int min, int max, int arg){
 
 //molecule function
 void create_mol(int time, shared_t *shared, int id, char atom){
-    //when reached H2O, postponing other processes
-    sem_wait(&(shared->hyd));
-    sem_wait(&(shared->hyd));
-    sem_wait(&(shared->ox));
-
-    print_to_file(shared, id,atom, mol_cr);
+    //shared->atoms_in++;
+    if (shared->atoms_in == 3){
+        shared->mol_num++;
+    }
+    //creating molecule
+    print_to_file(shared, id,atom, 2);
     //printf("%d: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, ++shared->mol_num);
-    time++; //TODO just to get rid of warning
-    id++;
-    if (atom == 'H'){
-            shared->hyd_num--;
-    }
-    if (atom == 'O'){
-        shared->ox_num--;
-    }
+    rand_sleep(time);
+    print_to_file(shared, id, atom, 3);
 
+
+    if (shared->atoms_in ==3) {
+        sem_post(&shared->mutex);
+    }
+    else{
+        sem_wait(&shared->mutex);
+    }
     sem_post(&(shared->hyd));
     sem_post(&(shared->hyd));
     sem_post(&(shared->ox));
-
+    shared->atoms_in = 0;
 }
 
 
@@ -87,38 +123,83 @@ void create_mol(int time, shared_t *shared, int id, char atom){
 void oxygen(int id, int wait_time, shared_t *shared){
     char atom = 'O';
     //starting atom
-    print_to_file(shared,id,'O', started);
+    print_to_file(shared,id,atom,  0);
 
     //putting atom to sleep
     rand_sleep(wait_time);
-    shared->ox_num++;//TODO
+
 
     //printing out atom going to queue
-    print_to_file(shared,id,atom, queue);
-
-    //TODO podmienka na vytvaranie molekul
+    print_to_file(shared,id,atom, 1);
+    //****************************************************
+    /*
     if (shared->hyd_num >= 2 && shared->ox_num >= 1){
-        create_mol(wait_time, shared, id, atom);
+        sem_post(&shared->mutex2);
     }
+    else{
+        sem_wait(&shared->mutex2);
+    }
+    sem_wait(&(shared->ox));
+    create_mol(wait_time, shared, id, atom);
+     */
+
+    sem_wait(&shared->ox);
+
+    sem_post(&shared->hyd);
+    sem_post(&shared->hyd);
+
+    print_to_file(shared, id,atom, 2);
+
+    sem_wait(&shared->mutex2);
+    sem_wait(&shared->mutex2);
+
+    sem_post(&shared->mutex3);
+    sem_post(&shared->mutex3);
+
+
+    print_to_file(shared, id, atom, 3);
+
+    sem_post(&shared->ox);
+
+
+
 }
 
 //function that creates hydrogen
 void hydrogen(int id, int wait_time, shared_t *shared) {
     char atom = 'H';
     //printing out that atom started
-    print_to_file(shared,id,'H',started);
+    print_to_file(shared,id,atom,0);
 
     //putting process to sleep
     rand_sleep(wait_time);
-    shared->hyd_num++;//TODO
     //going to queue after sleep
-    print_to_file(shared,id,atom,queue);
+    print_to_file(shared,id,atom,1);
 
-    //TODO sem musi ist nejaka podmienka + semaforis aby fungovalo vytvaranie molekul
-    //toto je akoze ona:
+
+    //**************************************************************************
+    /*
     if (shared->hyd_num >= 2 && shared->ox_num >= 1){
-        create_mol(wait_time, shared, id, atom);
+        sem_post(&shared->mutex3);
+
     }
+    else{
+        sem_wait(&shared->mutex3);
+    }
+    sem_wait(&shared->hyd);
+    sem_wait(&shared->hyd);
+    create_mol(wait_time, shared, id, atom);
+*/
+
+    sem_wait(&shared->hyd);
+
+    print_to_file(shared, id,atom, 2);
+
+    sem_post(&shared->mutex2);
+    sem_wait(&shared->mutex3);
+    print_to_file(shared, id, atom, 3);
+
+
 
 
 
@@ -133,9 +214,15 @@ int main(int argc, char **argv){
     MMAP(shared);
     //init all semaphores
     sem_init(&(shared->out), 1, 1);
+
+    //haha
+    sem_init(&(shared->mutex2), 1, 0);
+    sem_init(&(shared->mutex3), 1, 0);
     sem_init(&(shared->ox),1,1);
-    sem_init(&(shared->hyd),1,2);
+    sem_init(&(shared->hyd),1,0);
     shared->file_op =  fopen("proj2.out", "w");
+    shared->ox_num = 0;
+    shared->hyd_num = 0;
 
     //checking parameters
     if (argc != ARG_NUM){
