@@ -7,4 +7,4 @@ include_directories(.)
 
 add_executable(proj2
         lib.h
-        source.c)
+        proj2.c)

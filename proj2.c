@@ -46,6 +46,10 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
 
     //started
     if (todo == 0) {
+        if (atom == 'O') {
+            shared->mol_num++;}
+
+        //if(atom == 'O'){shared->mol_num++;}
         fprintf(shared->file_op, "%ld: %c %d: started\n", ++shared->rows_cnt, atom, id);
         fflush(shared->file_op);
 
@@ -60,9 +64,6 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     }
     //creating molecule
     else if (todo == 2){
-
-        fprintf(shared->file_op, "%ld: %c %d: creating molecule \n", ++shared->rows_cnt, atom, id);
-        shared->atoms_in++;
         fflush(shared->file_op);
         if (atom == 'O'){shared->ox_num--;}
         if (atom == 'H'){shared->hyd_num--;}
@@ -70,7 +71,7 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     }
     //molecule created
     else if (todo == 3){
-        fprintf(shared->file_op, "%ld: %c:%d molecule created\n", ++shared->rows_cnt, atom, id );
+        fprintf(shared->file_op, "%ld: %c %d: molecule %d created\n", ++shared->rows_cnt, atom, id, shared->mol_num );
         fflush(shared->file_op);
         //shared->atoms_in--;
     }
@@ -96,9 +97,11 @@ bool inRange(int min, int max, int arg){
 //molecule function
 void create_mol(int time, shared_t *shared, int id, char atom){
     //shared->atoms_in++;
+    /*
     if (shared->atoms_in == 3){
         shared->mol_num++;
     }
+     */
     //creating molecule
     print_to_file(shared, id,atom, 2);
     //printf("%d: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, ++shared->mol_num);
@@ -227,15 +230,14 @@ int main(int argc, char **argv){
     //checking parameters
     if (argc != ARG_NUM){
         fprintf(stderr,"[ERROR] invalid amount of arguments given.\n");
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
     int TI = atoi(argv[3]); 
     int TB = atoi(argv[4]); 
     //if given parameters are not in range <0,1000> program exits
     if (!(inRange(0,1000,TI) && inRange(0,1000,TB))){
-        printf("1");
-        return 1;
+        exit(EXIT_FAILURE);
 
     }
 
@@ -253,7 +255,7 @@ int main(int argc, char **argv){
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
-            //return 1;
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -266,9 +268,18 @@ int main(int argc, char **argv){
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
-            //return 1;
+            exit(EXIT_FAILURE);
         }
     }
+    sem_destroy(&(shared->out));
+
+    //haha
+    sem_destroy(&(shared->mutex2));
+    sem_destroy(&(shared->mutex3));
+    sem_destroy(&(shared->ox));
+    sem_destroy(&(shared->hyd));
+    fclose(shared->file_op);
+    UNMAP(shared);
 
     return 0;    
 }

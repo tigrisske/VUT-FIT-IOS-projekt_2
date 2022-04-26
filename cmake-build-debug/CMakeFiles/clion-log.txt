@@ -1,10 +1,4 @@
 /home/joker/.local/share/JetBrains/Toolbox/apps/CLion/ch-0/213.6777.58/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/home/joker/.local/share/JetBrains/Toolbox/apps/CLion/ch-0/213.6777.58/bin/ninja/linux/ninja -G Ninja /home/joker/programming/C/ios/proj2
--- The C compiler identification is GNU 11.2.1
--- Detecting C compiler ABI info
--- Detecting C compiler ABI info - done
--- Check for working C compiler: /usr/bin/cc - skipped
--- Detecting C compile features
--- Detecting C compile features - done
 -- Configuring done
 -- Generating done
 -- Build files have been written to: /home/joker/programming/C/ios/proj2/cmake-build-debug
