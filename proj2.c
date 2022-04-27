@@ -56,27 +56,34 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     //going to queue
     else if (todo == 1){
         fprintf(shared->file_op, "%ld: %c %d: going to queue\n", ++shared->rows_cnt, atom, id);
-
-        if (atom == 'O'){shared->ox_num++;}
-        if (atom == 'H'){shared->hyd_num++;}
+        //if (atom == 'O'){shared->ox_num--;}
+        //if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
     }
     //creating molecule
     else if (todo == 2){
         fprintf(shared->file_op, "%ld: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, shared->mol_num);
         fflush(shared->file_op);
-        //if (atom == 'O'){shared->ox_num--;}
-        //if (atom == 'H'){shared->hyd_num--;}
+
 
     }
     //molecule created
     else if (todo == 3){
         shared->atoms_in++;
-
         fprintf(shared->file_op, "%ld: %c %d: molecule %d created\n", ++shared->rows_cnt, atom, id, shared->mol_num );
         if (shared->atoms_in == 3){shared->mol_num++;shared->atoms_in = 0;}
+        if (atom == 'O'){shared->ox_num--;}
+        if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
         //shared->atoms_in--;
+    }
+    else if( todo == 4){
+        fprintf(shared->file_op, "%ld: %c %d: not enough H\n",++shared->rows_cnt, atom, id);
+        fflush(shared->file_op);
+    }
+    else if( todo == 5){
+        fprintf(shared->file_op, "%ld: %c %d: not enough O or H\n",++shared->rows_cnt, atom, id);
+        fflush(shared->file_op);
     }
     //allowing other processes to access output file
     sem_post(&shared->out);
@@ -126,33 +133,31 @@ void create_mol(int time, shared_t *shared, int id, char atom){
 
 
 //function that creates oxygen
-void oxygen(int id, int wait_time, shared_t *shared){
+void oxygen(int id, int TI,int TB, shared_t *shared){
     char atom = 'O';
     //starting atom
     print_to_file(shared,id,atom,  0);
 
     //putting atom to sleep
-    rand_sleep(wait_time);
+    rand_sleep(TI);
 
 
     //printing out atom going to queue
     print_to_file(shared,id,atom, 1);
-    //****************************************************
-    /*
-    if (shared->hyd_num >= 2 && shared->ox_num >= 1){
-        sem_post(&shared->mutex2);
-    }
-    else{
-        sem_wait(&shared->mutex2);
-    }
-    sem_wait(&(shared->ox));
-    create_mol(wait_time, shared, id, atom);
-     */
+
 
     sem_wait(&shared->ox);
 
     sem_post(&shared->hyd);
     sem_post(&shared->hyd);
+
+    if (shared->hyd_num < 2 || shared->ox_num < 1){
+        print_to_file(shared,id,atom,4);
+        sem_post(&shared->mutex3);
+        sem_post(&shared->mutex3);
+        sem_post(&shared->ox);
+        exit(EXIT_SUCCESS);
+    }
 
     print_to_file(shared, id,atom, 2);
 
@@ -162,7 +167,8 @@ void oxygen(int id, int wait_time, shared_t *shared){
     sem_post(&shared->mutex3);
     sem_post(&shared->mutex3);
 
-
+    //sleeping and created
+    rand_sleep(TB);
     print_to_file(shared, id, atom, 3);
 
 
@@ -173,51 +179,44 @@ void oxygen(int id, int wait_time, shared_t *shared){
     sem_post(&shared->mutex5);
 
     sem_post(&shared->ox);
-
+    exit(EXIT_SUCCESS);
 
 }
 
 //function that creates hydrogen
-void hydrogen(int id, int wait_time, shared_t *shared) {
+void hydrogen(int id, int TI,int TB, shared_t *shared) {
     char atom = 'H';
     //printing out that atom started
     print_to_file(shared,id,atom,0);
 
     //putting process to sleep
-    rand_sleep(wait_time);
+    rand_sleep(TI);
     //going to queue after sleep
     print_to_file(shared,id,atom,1);
 
 
-    //**************************************************************************
-    /*
-    if (shared->hyd_num >= 2 && shared->ox_num >= 1){
-        sem_post(&shared->mutex3);
-
-    }
-    else{
-        sem_wait(&shared->mutex3);
-    }
-    sem_wait(&shared->hyd);
-    sem_wait(&shared->hyd);
-    create_mol(wait_time, shared, id, atom);
-*/
 
     sem_wait(&shared->hyd);
+    if (shared->hyd_num < 2 || shared->ox_num < 1){
+        print_to_file(shared,id,atom,5);
+        sem_post(&shared->mutex2);
+        exit(EXIT_SUCCESS);
+    }
 
     print_to_file(shared, id,atom, 2);
 
     sem_post(&shared->mutex2);
     sem_wait(&shared->mutex3);
+
+    rand_sleep(TB);
     print_to_file(shared, id, atom, 3);
     sem_post(&shared->mutex4);
     sem_wait(&shared->mutex5);
-
-
-
-
-
-
+    if(shared->ox_num == 0){
+        sem_post(&shared->hyd);
+        sem_post(&shared->hyd);
+    }
+    exit(EXIT_SUCCESS);
 }
 
 
@@ -237,8 +236,9 @@ int main(int argc, char **argv){
     sem_init(&(shared->ox),1,1);
     sem_init(&(shared->hyd),1,0);
     shared->file_op =  fopen("proj2.out", "w");
-    shared->ox_num = 0;
-    shared->hyd_num = 0;
+
+    //shared->ox_num = 0;
+    //shared->hyd_num = 0;
     shared->atoms_in = 0;
     shared->mol_num = 1;
 
@@ -248,25 +248,64 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    int NO = atoi(argv[1]);
+    int NH = atoi(argv[2]);
     int TI = atoi(argv[3]); 
     int TB = atoi(argv[4]); 
     //if given parameters are not in range <0,1000> program exits
     if (!(inRange(0,1000,TI) && inRange(0,1000,TB))){
+        fprintf(stderr, "[ERROR] wrong range of given arguments");
         exit(EXIT_FAILURE);
+    }
 
+    //CHECKING WHETHER GIVEN ARGUMENTS ARE NUMBERS
+    char* block;
+    int no = (int)strtol(argv[1], &block, 0);
+    if (*block != '\0' || no < 0)
+    {
+        fprintf(stderr,"[ERROR] arguments must be numeric\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int nh = (int)strtol(argv[2], &block, 0);
+    if (*block != '\0' || nh < 0)
+    {
+        fprintf(stderr,"[ERROR] arguments must be numeric\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int ti = (int)strtol(argv[3], &block, 0);
+    if (*block != '\0' || ti < 0 || ti > 1000)
+    {
+        fprintf(stderr,"[ERROR] arguments must be numeric\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int tb = (int)strtol(argv[4], &block, 0);
+    if (*block != '\0' || tb < 0 || tb > 1000)
+    {
+        fprintf(stderr,"[ERROR] arguments must be numeric\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (NO <= 0 || NH <= 0){
+        fprintf(stderr, "[ERROR] NO and NH can not be negative nor zero values\n");
+        exit(EXIT_FAILURE);
     }
 
     //declaring variables
     int ox_num = atoi(argv[1]);
     int hyd_num = atoi(argv[2]);
+    shared->ox_num = atoi(argv[1]);
+    shared->hyd_num = atoi(argv[2]);
 
     pid_t pid;
     //forking hydrogen
     for(int i = 0; i < hyd_num; i++){
         pid = fork();
         if (pid == 0){
-            hydrogen(i+1,TI, shared);
-            exit(0);
+            hydrogen(i+1,TI,TB, shared);
+            exit(EXIT_SUCCESS);
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
@@ -278,8 +317,8 @@ int main(int argc, char **argv){
     for(int i = 0; i < ox_num; i++){
         pid = fork();
         if (pid == 0){
-            oxygen(i+1, TI, shared);
-            exit(0);
+            oxygen(i+1, TI,TB, shared);
+            exit(EXIT_SUCCESS);
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
@@ -291,10 +330,12 @@ int main(int argc, char **argv){
     //haha
     sem_destroy(&(shared->mutex2));
     sem_destroy(&(shared->mutex3));
+    sem_destroy(&(shared->mutex4));
+    sem_destroy(&(shared->mutex5));
     sem_destroy(&(shared->ox));
     sem_destroy(&(shared->hyd));
     fclose(shared->file_op);
     UNMAP(shared);
 
-    return 0;    
+    exit(0);
 }
