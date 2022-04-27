@@ -34,6 +34,8 @@ typedef struct shared{
     sem_t mutex;
     sem_t mutex2;
     sem_t mutex3;
+    sem_t mutex4;
+    sem_t mutex5;
     sem_t out;
     FILE* file_op;
 
@@ -46,9 +48,6 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
 
     //started
     if (todo == 0) {
-        if (atom == 'O') {
-            shared->mol_num++;}
-
         //if(atom == 'O'){shared->mol_num++;}
         fprintf(shared->file_op, "%ld: %c %d: started\n", ++shared->rows_cnt, atom, id);
         fflush(shared->file_op);
@@ -64,14 +63,18 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     }
     //creating molecule
     else if (todo == 2){
+        fprintf(shared->file_op, "%ld: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, shared->mol_num);
         fflush(shared->file_op);
-        if (atom == 'O'){shared->ox_num--;}
-        if (atom == 'H'){shared->hyd_num--;}
+        //if (atom == 'O'){shared->ox_num--;}
+        //if (atom == 'H'){shared->hyd_num--;}
 
     }
     //molecule created
     else if (todo == 3){
+        shared->atoms_in++;
+
         fprintf(shared->file_op, "%ld: %c %d: molecule %d created\n", ++shared->rows_cnt, atom, id, shared->mol_num );
+        if (shared->atoms_in == 3){shared->mol_num++;shared->atoms_in = 0;}
         fflush(shared->file_op);
         //shared->atoms_in--;
     }
@@ -162,8 +165,14 @@ void oxygen(int id, int wait_time, shared_t *shared){
 
     print_to_file(shared, id, atom, 3);
 
-    sem_post(&shared->ox);
 
+    sem_wait(&shared->mutex4);
+    sem_wait(&shared->mutex4);
+
+    sem_post(&shared->mutex5);
+    sem_post(&shared->mutex5);
+
+    sem_post(&shared->ox);
 
 
 }
@@ -201,6 +210,8 @@ void hydrogen(int id, int wait_time, shared_t *shared) {
     sem_post(&shared->mutex2);
     sem_wait(&shared->mutex3);
     print_to_file(shared, id, atom, 3);
+    sem_post(&shared->mutex4);
+    sem_wait(&shared->mutex5);
 
 
 
@@ -221,11 +232,15 @@ int main(int argc, char **argv){
     //haha
     sem_init(&(shared->mutex2), 1, 0);
     sem_init(&(shared->mutex3), 1, 0);
+    sem_init(&(shared->mutex4), 1, 0);
+    sem_init(&(shared->mutex5), 1, 0);
     sem_init(&(shared->ox),1,1);
     sem_init(&(shared->hyd),1,0);
     shared->file_op =  fopen("proj2.out", "w");
     shared->ox_num = 0;
     shared->hyd_num = 0;
+    shared->atoms_in = 0;
+    shared->mol_num = 1;
 
     //checking parameters
     if (argc != ARG_NUM){
