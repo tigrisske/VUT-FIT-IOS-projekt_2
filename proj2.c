@@ -69,11 +69,12 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     }
     //molecule created
     else if (todo == 3){
+        //TODO neni dobre
         shared->atoms_in++;
         fprintf(shared->file_op, "%ld: %c %d: molecule %d created\n", ++shared->rows_cnt, atom, id, shared->mol_num );
         if (shared->atoms_in == 3){shared->mol_num++;shared->atoms_in = 0;}
-        if (atom == 'O'){shared->ox_num--;}
-        if (atom == 'H'){shared->hyd_num--;}
+        //if (atom == 'O'){shared->ox_num--;}
+        //if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
         //shared->atoms_in--;
     }
@@ -137,14 +138,10 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
     char atom = 'O';
     //starting atom
     print_to_file(shared,id,atom,  0);
-
     //putting atom to sleep
     rand_sleep(TI);
-
-
     //printing out atom going to queue
     print_to_file(shared,id,atom, 1);
-
 
     sem_wait(&shared->ox);
 
@@ -203,6 +200,7 @@ void hydrogen(int id, int TI,int TB, shared_t *shared) {
         exit(EXIT_SUCCESS);
     }
 
+    //creating
     print_to_file(shared, id,atom, 2);
 
     sem_post(&shared->mutex2);
