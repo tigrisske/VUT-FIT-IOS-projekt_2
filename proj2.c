@@ -24,6 +24,8 @@ typedef struct shared{
     int ox_num;
     int mol_num;
     int atoms_in;
+    int ox_num_inq;
+    int OX;
     int max_mol;
     char H1;
     char H2;
@@ -39,6 +41,8 @@ typedef struct shared{
     sem_t mutex5;
     sem_t begin;
     sem_t out;
+    sem_t wait_till_all_in_q;
+
     FILE* file_op;
 
 }shared_t;
@@ -58,7 +62,13 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
         //going to queue
     else if (todo == 1){
         fprintf(shared->file_op, "%ld: %c %d: going to queue\n", ++shared->rows_cnt, atom, id);
-        //if (atom == 'O'){shared->ox_num--;}
+        //if (atom == 'O'){shared->ox_num_inq++;}
+        shared->ox_num_inq++;
+        if (shared->ox_num_inq == shared->OX){
+            for (int i = 0 ; i< shared->OX; i++){
+                sem_post(&shared->wait_till_all_in_q);
+            }
+        }
         //if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
     }
@@ -107,33 +117,6 @@ bool inRange(int min, int max, int arg){
     return false;
 }
 
-//molecule function
-void create_mol(int time, shared_t *shared, int id, char atom){
-    //shared->atoms_in++;
-    /*
-    if (shared->atoms_in == 3){
-        shared->mol_num++;
-    }
-     */
-    //creating molecule
-    print_to_file(shared, id,atom, 2);
-    //printf("%d: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, ++shared->mol_num);
-    rand_sleep(time);
-    print_to_file(shared, id, atom, 3);
-
-
-    if (shared->atoms_in ==3) {
-        sem_post(&shared->mutex);
-    }
-    else{
-        sem_wait(&shared->mutex);
-    }
-    sem_post(&(shared->hyd));
-    sem_post(&(shared->hyd));
-    sem_post(&(shared->ox));
-    shared->atoms_in = 0;
-}
-
 
 //function that creates oxygen
 void oxygen(int id, int TI,int TB, shared_t *shared){
@@ -148,12 +131,16 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
     sem_wait(&shared->ox);
 
     if (shared->hyd_num < 2 || shared->ox_num < 1){
-    //if(shared->max_mol <= shared->mol_num){
-        print_to_file(shared,id,atom,4);
-        sem_post(&shared->mutex3);
-        sem_post(&shared->mutex3);
-
         sem_post(&shared->ox);
+        //TODO
+        if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
+            sem_wait(&shared->wait_till_all_in_q);
+        }
+        print_to_file(shared,id,atom,4);
+        //sem_post(&shared->mutex3);
+        //sem_post(&shared->mutex3);
+
+
         exit(EXIT_SUCCESS);
     }
 
@@ -203,9 +190,12 @@ void hydrogen(int id, int TI,int TB, shared_t *shared) {
 
     sem_wait(&shared->mutex);
     if (shared->hyd_num < 2 || shared->ox_num < 1){
+        if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
+            sem_wait(&shared->wait_till_all_in_q);
+        }
     //if(shared->max_mol <= shared->mol_num){
         print_to_file(shared,id,atom,5);
-        sem_post(&shared->mutex2);
+        //sem_post(&shared->mutex2);
         sem_post(&shared->mutex);
         exit(EXIT_SUCCESS);
     }
@@ -252,6 +242,8 @@ int main(int argc, char **argv){
     sem_init(&(shared->begin), 1, 0);
     sem_init(&(shared->ox),1,1);
     sem_init(&(shared->hyd),1,0);
+    sem_init(&(shared->wait_till_all_in_q),1,0);
+
     shared->file_op =  fopen("proj2.out", "w");
 
     //shared->ox_num = 0;
@@ -314,6 +306,7 @@ int main(int argc, char **argv){
     int ox_num = atoi(argv[1]);
     int hyd_num = atoi(argv[2]);
     shared->ox_num = atoi(argv[1]);
+    shared->OX = atoi(argv[1]) + atoi(argv[2]);
     shared->hyd_num = atoi(argv[2]);
     shared->max_mol = hyd_num/ox_num;
 
@@ -331,7 +324,7 @@ int main(int argc, char **argv){
         }
     }
 
-    //forking oxygen brasko
+    //forking oxygen
     for(int i = 0; i < ox_num; i++){
         pid = fork();
         if (pid == 0){
@@ -354,6 +347,7 @@ int main(int argc, char **argv){
     sem_destroy(&(shared->ox));
     sem_destroy(&(shared->hyd));
     sem_destroy(&(shared->begin));
+    sem_destroy(&(shared->wait_till_all_in_q));
     fclose(shared->file_op);
     UNMAP(shared);
 
