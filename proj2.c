@@ -128,36 +128,37 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
     //printing out atom going to queue
     print_to_file(shared,id,atom, 1);
 
+    //only one oxygen can access this section at the time
     sem_wait(&shared->ox);
 
+    //if there is not enough atoms, function prints out "not enough.."
     if (shared->hyd_num < 2 || shared->ox_num < 1){
+        //allowing another oxygen get here
         sem_post(&shared->ox);
-        //TODO
+
+        //but before it prints, it must wait until all atoms are in queue
         if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
             sem_wait(&shared->wait_till_all_in_q);
         }
         print_to_file(shared,id,atom,4);
-        //sem_post(&shared->mutex3);
-        //sem_post(&shared->mutex3);
-
-
         exit(EXIT_SUCCESS);
     }
 
 
+    //two hydrogen and one oxygen wait for each other here so none of them starts creating before they all are in queue
     sem_wait(&shared->begin);
     sem_wait(&shared->begin);
-
     sem_post(&shared->hyd);
     sem_post(&shared->hyd);
 
 
-
+    //creating molecule
     print_to_file(shared, id,atom, 2);
 
-    sem_wait(&shared->mutex2);
-    sem_wait(&shared->mutex2);
 
+    //here they wait for each other so they all print out creating before any of them prints "created"
+    sem_wait(&shared->mutex2);
+    sem_wait(&shared->mutex2);
     sem_post(&shared->mutex3);
     sem_post(&shared->mutex3);
 
@@ -165,10 +166,9 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
     rand_sleep(TB);
     print_to_file(shared, id, atom, 3);
 
-
+    //waiting again to avoid deadlock
     sem_wait(&shared->mutex4);
     sem_wait(&shared->mutex4);
-
     sem_post(&shared->mutex5);
     sem_post(&shared->mutex5);
 
@@ -180,47 +180,54 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
 //function that creates hydrogen
 void hydrogen(int id, int TI,int TB, shared_t *shared) {
     char atom = 'H';
+
     //printing out that atom started
     print_to_file(shared,id,atom,0);
 
     //putting process to sleep
     rand_sleep(TI);
+
     //going to queue after sleep
     print_to_file(shared,id,atom,1);
 
+    //only two hydrogen can access this section at the time:
     sem_wait(&shared->mutex);
+
+    //if there is not enough atoms, function prints out "not enough.."
     if (shared->hyd_num < 2 || shared->ox_num < 1){
+        //but before it prints, it must wait until all atoms are in queue
         if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
             sem_wait(&shared->wait_till_all_in_q);
         }
-    //if(shared->max_mol <= shared->mol_num){
         print_to_file(shared,id,atom,5);
-        //sem_post(&shared->mutex2);
+
+        //allows another hydrogen access this section
         sem_post(&shared->mutex);
         exit(EXIT_SUCCESS);
     }
 
+    //here two hydrogen wait for oxygen and reverse
     sem_post(&shared->begin);
     sem_wait(&shared->hyd);
 
 
-    //creating
+    //here they create molecule
     print_to_file(shared, id,atom, 2);
 
+    //they wait here for each other again so none of them prints "created.." before they all printed "creating.."
     sem_post(&shared->mutex2);
     sem_wait(&shared->mutex3);
 
+    //creation time
     rand_sleep(TB);
-    print_to_file(shared, id, atom, 3);
+    print_to_file(shared, id, atom, 3);//created
+
+    //they again wait for each other here to avoid deadlock
     sem_post(&shared->mutex4);
     sem_wait(&shared->mutex5);
-    //toto tu podla mna nemusi byt
-    /*
-    if(shared->ox_num == 0){
-        sem_post(&shared->hyd);
-        sem_post(&shared->hyd);
-    }*/
-    sem_post(&shared->mutex);
+
+    sem_post(&shared->mutex);//another hydrogen can get going into critical section of this process
+
     exit(EXIT_SUCCESS);
 }
 
@@ -246,8 +253,7 @@ int main(int argc, char **argv){
 
     shared->file_op =  fopen("proj2.out", "w");
 
-    //shared->ox_num = 0;
-    //shared->hyd_num = 0;
+    shared->ox_num_inq = 0;
     shared->atoms_in = 0;
     shared->mol_num = 1;
 
