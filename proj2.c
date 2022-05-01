@@ -8,27 +8,22 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <string.h>
 
 #define ARG_NUM 5
 
 #define MMAP(pointer){(pointer) = mmap(NULL, sizeof(*(pointer)), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);}
 #define UNMAP(pointer) {munmap((pointer), sizeof((pointer)));}
 
-const char *started = "started";
-const char *queue = "going to queue";
-const char *mol_creating = "creating molecule";
-const char *mol_created = "molecule created";
-
 typedef struct shared{
+
+    //shared variables
     int hyd_num ;
     int ox_num;
     int mol_num;
     int atoms_in;
-    int ox_num_inq;
-    int OX;
-    int max_mol;
-    char H1;
-    char H2;
+    int atoms_num_inq;
+    int OX_n_HYD;
     size_t rows_cnt;
 
     //semaphores
@@ -42,58 +37,59 @@ typedef struct shared{
     sem_t begin;
     sem_t out;
     sem_t wait_till_all_in_q;
-
     FILE* file_op;
 
 }shared_t;
 
-//print function
+//function that prints into file
 void print_to_file(shared_t *shared, int id, char atom, int todo){
     //only one process can write to file at the time
     sem_wait(&shared->out);
 
     //started
     if (todo == 0) {
-        //if(atom == 'O'){shared->mol_num++;}
         fprintf(shared->file_op, "%ld: %c %d: started\n", ++shared->rows_cnt, atom, id);
         fflush(shared->file_op);
 
     }
-        //going to queue
+    //going to queue
     else if (todo == 1){
         fprintf(shared->file_op, "%ld: %c %d: going to queue\n", ++shared->rows_cnt, atom, id);
-        //if (atom == 'O'){shared->ox_num_inq++;}
-        shared->ox_num_inq++;
-        if (shared->ox_num_inq == shared->OX){
-            for (int i = 0 ; i< shared->OX; i++){
+        //counting number of atoms in queue
+        shared->atoms_num_inq++;
+        //if all atoms are in queue semaphore lets other atoms that wait print "not enough..."
+        if (shared->atoms_num_inq == shared->OX_n_HYD){
+            for (int i = 0 ; i< shared->OX_n_HYD; i++){
                 sem_post(&shared->wait_till_all_in_q);
             }
         }
-        //if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
     }
-        //creating molecule
+    //creating molecule
     else if (todo == 2){
         fprintf(shared->file_op, "%ld: %c %d: creating molecule %d\n", ++shared->rows_cnt, atom, id, shared->mol_num);
         fflush(shared->file_op);
 
 
     }
-        //molecule created
+    //molecule created
     else if (todo == 3){
-        //TODO neni dobre
-        shared->atoms_in++;
+        shared->atoms_in++;//counting atoms that are currently creating a molecule
         fprintf(shared->file_op, "%ld: %c %d: molecule %d created\n", ++shared->rows_cnt, atom, id, shared->mol_num );
+
+        //every three atoms that create molecule, number of molecules increases
         if (shared->atoms_in == 3){shared->mol_num++;shared->atoms_in = 0;}
+        //with every atom that took part in creating molecule, we subtract it from remaining atoms
         if (atom == 'O'){shared->ox_num--;}
         if (atom == 'H'){shared->hyd_num--;}
         fflush(shared->file_op);
-        //shared->atoms_in--;
     }
+    //not enough H
     else if( todo == 4){
         fprintf(shared->file_op, "%ld: %c %d: not enough H\n",++shared->rows_cnt, atom, id);
         fflush(shared->file_op);
     }
+    //not enough O or H
     else if( todo == 5){
         fprintf(shared->file_op, "%ld: %c %d: not enough O or H\n",++shared->rows_cnt, atom, id);
         fflush(shared->file_op);
@@ -101,7 +97,6 @@ void print_to_file(shared_t *shared, int id, char atom, int todo){
     //allowing other processes to access output file
     sem_post(&shared->out);
 }
-
 
 
 //function to put the process sleep
@@ -137,7 +132,7 @@ void oxygen(int id, int TI,int TB, shared_t *shared){
         sem_post(&shared->ox);
 
         //but before it prints, it must wait until all atoms are in queue
-        if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
+        if (shared->atoms_num_inq != shared->OX_n_HYD){
             sem_wait(&shared->wait_till_all_in_q);
         }
         print_to_file(shared,id,atom,4);
@@ -196,7 +191,7 @@ void hydrogen(int id, int TI,int TB, shared_t *shared) {
     //if there is not enough atoms, function prints out "not enough.."
     if (shared->hyd_num < 2 || shared->ox_num < 1){
         //but before it prints, it must wait until all atoms are in queue
-        if (shared->ox_num_inq != (shared->ox_num+ shared->hyd_num)){
+        if (shared->atoms_num_inq != shared->OX_n_HYD){
             sem_wait(&shared->wait_till_all_in_q);
         }
         print_to_file(shared,id,atom,5);
@@ -231,16 +226,8 @@ void hydrogen(int id, int TI,int TB, shared_t *shared) {
     exit(EXIT_SUCCESS);
 }
 
-
-int main(int argc, char **argv){
-
-    //allocating the shared memory
-    shared_t *shared;
-    MMAP(shared);
-    //init all semaphores
+void init_semaphores(shared_t *shared){
     sem_init(&(shared->out), 1, 1);
-
-    //haha
     sem_init(&(shared->mutex), 1, 2);
     sem_init(&(shared->mutex2), 1, 0);
     sem_init(&(shared->mutex3), 1, 0);
@@ -250,16 +237,24 @@ int main(int argc, char **argv){
     sem_init(&(shared->ox),1,1);
     sem_init(&(shared->hyd),1,0);
     sem_init(&(shared->wait_till_all_in_q),1,0);
+    }
 
-    shared->file_op =  fopen("proj2.out", "w");
-
-    shared->ox_num_inq = 0;
-    shared->atoms_in = 0;
-    shared->mol_num = 1;
-
+void destroy_semaphores(shared_t *shared){
+    sem_destroy(&(shared->out));
+    sem_destroy(&(shared->mutex));
+    sem_destroy(&(shared->mutex2));
+    sem_destroy(&(shared->mutex3));
+    sem_destroy(&(shared->mutex4));
+    sem_destroy(&(shared->mutex5));
+    sem_destroy(&(shared->ox));
+    sem_destroy(&(shared->hyd));
+    sem_destroy(&(shared->begin));
+    sem_destroy(&(shared->wait_till_all_in_q));
+}
+int main(int argc, char **argv){
     //checking parameters
     if (argc != ARG_NUM){
-        fprintf(stderr,"[ERROR] invalid amount of arguments given.\n");
+        fprintf(stderr,"[ERROR] invalid amount of arguments given\n");
         exit(EXIT_FAILURE);
     }
 
@@ -269,21 +264,21 @@ int main(int argc, char **argv){
     int TB = atoi(argv[4]);
     //if given parameters are not in range <0,1000> program exits
     if (!(inRange(0,1000,TI) && inRange(0,1000,TB))){
-        fprintf(stderr, "[ERROR] wrong range of given arguments");
+        fprintf(stderr, "[ERROR] wrong range of given arguments\n");
         exit(EXIT_FAILURE);
     }
 
     //CHECKING WHETHER GIVEN ARGUMENTS ARE NUMBERS
     char* block;
-    int no = (int)strtol(argv[1], &block, 0);
-    if (*block != '\0' || no < 0)
+    int ox = (int)strtol(argv[1], &block, 0);
+    if (*block != '\0' || ox     < 0)
     {
         fprintf(stderr,"[ERROR] arguments must be numeric\n");
         exit(EXIT_FAILURE);
     }
 
-    int nh = (int)strtol(argv[2], &block, 0);
-    if (*block != '\0' || nh < 0)
+    int hyd = (int)strtol(argv[2], &block, 0);
+    if (*block != '\0' || hyd < 0)
     {
         fprintf(stderr,"[ERROR] arguments must be numeric\n");
         exit(EXIT_FAILURE);
@@ -303,18 +298,38 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
-    if (NO <= 0 || NH <= 0){
+    if (NO <= 0 || NH <= 0 || TI < 0 || TB < 0){
         fprintf(stderr, "[ERROR] NO and NH can not be negative nor zero values\n");
         exit(EXIT_FAILURE);
     }
 
+    if (strlen(argv[4]) == 0 || strlen(argv[3]) == 0 || argv[2] == 0 || strlen(argv[1]) == 0 ){
+        fprintf(stderr, "[ERROR] missing TI or TB\n");
+        exit(EXIT_FAILURE);
+    }
+
+
+    //allocating the shared memory
+    shared_t *shared;
+    MMAP(shared);
+    //initialization of all semaphores
+    init_semaphores(shared);
+
     //declaring variables
+    shared->file_op =  fopen("proj2.out", "w");
+    shared->atoms_num_inq = 0;
+    shared->atoms_in = 0;
+    shared->mol_num = 1;
+
     int ox_num = atoi(argv[1]);
     int hyd_num = atoi(argv[2]);
+
     shared->ox_num = atoi(argv[1]);
-    shared->OX = atoi(argv[1]) + atoi(argv[2]);
     shared->hyd_num = atoi(argv[2]);
-    shared->max_mol = hyd_num/ox_num;
+
+    shared->OX_n_HYD = atoi(argv[1]) + atoi(argv[2]);
+
+
 
     pid_t pid;
     //forking hydrogen
@@ -326,6 +341,9 @@ int main(int argc, char **argv){
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
+            destroy_semaphores(shared);
+            fclose(shared->file_op);
+            UNMAP(shared);
             exit(EXIT_FAILURE);
         }
     }
@@ -339,23 +357,16 @@ int main(int argc, char **argv){
         }
         else if(pid <0){
             fprintf(stderr, "ERROR creating child process");
+            destroy_semaphores(shared);
+            fclose(shared->file_op);
+            UNMAP(shared);
             exit(EXIT_FAILURE);
         }
     }
-    sem_destroy(&(shared->out));
 
-    //haha
-    sem_destroy(&(shared->mutex));
-    sem_destroy(&(shared->mutex2));
-    sem_destroy(&(shared->mutex3));
-    sem_destroy(&(shared->mutex4));
-    sem_destroy(&(shared->mutex5));
-    sem_destroy(&(shared->ox));
-    sem_destroy(&(shared->hyd));
-    sem_destroy(&(shared->begin));
-    sem_destroy(&(shared->wait_till_all_in_q));
+    //destroying sems and freeing memory
+    destroy_semaphores(shared);
     fclose(shared->file_op);
     UNMAP(shared);
-
     exit(0);
 }
